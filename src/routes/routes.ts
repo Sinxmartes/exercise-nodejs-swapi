@@ -1,50 +1,84 @@
-import { writeFileSync } from "fs";
 import { Router } from "express";
 
 const router = Router();
 
 import api from "./../services/apiSwapi";
+import { changeValue, getCategory } from "../utils/getValues";
 
 let status = 200;
 
 router.get("/", (req, res) => {
     res.status(status).send({
-        message: "Olá Pessoa",
+        message: "Bem vindo a api Star Wars",
         status: status,
     });
 });
 
-router.get("/swapi/:id", async (req, res) => {
-    const id = req.params.id;
-    const param = req.query.param;
+router.get("/:category/:id", async (req, res) => {
+    let { id, category } = req.params;
     try {
         status = 200;
-        const people = await api.get(`/${param}/${id}`);
-        res.status(status).send(people.data);
-    } catch (error: any) {
-        status = 404;
-        //writeFileSync(`./../error.${Date.now().toString()}.log`, error);
-        res.status(status).send({
-            status,
-            error,
-        });
-    }
-});
+        category = await getCategory(category);
 
-router.post("/", (req, res) => {
-    try {
-        const body = req.body;
-        res.status(status).json({
-            message: `Olá ${body.nome} ${body.sobrenome}`,
-            status: status,
-        });
-    } catch (error: any) {
-        status = 402;
-        writeFileSync(`./../error.${Date.now()}.log`, error);
-        res.status(status).json({
-            error: error,
-            status: status,
-        });
+        if (!category) {
+            res.status(404).send("Não foi encontrado essa rota");
+            return;
+        }
+
+        const { data } = await api.get(`/${category}/${id}`);
+
+        await Promise.all(
+            Object.entries(data).map(async (p: any) => {
+                if (
+                    !p[1].length ||
+                    p[0] == "created" ||
+                    p[0] == "edited" ||
+                    p[0] == "url"
+                )
+                    delete data[p[0]];
+                else {
+                    if (p[1] instanceof Array) {
+                        let name: any;
+                        let id: any;
+                        for (const [i, v] of p[1].entries()) {
+                            name =
+                                p[0] == "people" ||
+                                p[0] == "characters" ||
+                                p[0] == "pilots" ||
+                                p[0] == "residents"
+                                    ? "people"
+                                    : p[0];
+                            id = v.split(`${name}/`)[1];
+                            p[1][i] = await changeValue(name, id);
+                        }
+                    } else if (p[0] == "homeworld")
+                        data[p[0]] = await changeValue(
+                            "planets",
+                            p[1].split(`planets/`)[1]
+                        );
+                    //else data[p[0]] = p[1]; //não obrigatório
+                }
+            })
+        );
+
+        res.status(status).send(data);
+    } catch (e: unknown) {
+        status = 404;
+        if (e instanceof Error) {
+            res.status(status).send({
+                status,
+                error: e.message,
+            });
+        } else {
+            console.error(Date.now());
+            console.error(e);
+            console.error("\n");
+            status = 500;
+            res.status(status).send({
+                status,
+                error: "houve problema ao executar o processo",
+            });
+        }
     }
 });
 
